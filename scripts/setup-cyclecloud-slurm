@@ -283,6 +283,7 @@ install_cyclecloud_slurm()
     cp -r /opt/cycle/slurm/cyclecloud-slurm/specs/default/chef/site-cookbooks/slurm/files/default/* /opt/cycle/slurm
     sed -i 's%/opt/cycle/jetpack/system/embedded/bin/python%/opt/cycle/cycle_python/bin/python%g' /opt/cycle/slurm/cyclecloud_slurm.sh
     chown -R slurm:slurm /opt/cycle/slurm/
+    chmod +x /opt/cycle/slurm/*.sh
 }
 
 
@@ -295,9 +296,35 @@ configure_cyclecloud_connection()
     /opt/cycle/slurm/cyclecloud_slurm.sh topology > ${SCHED_FOLDER}/topology.conf
 
     systemctl restart munge
+    systemctl enable slurmctld
     systemctl restart slurmctld
 
     echo "*/2 * * * * /opt/cycle/slurm/return_to_idle.sh /var/logs/return_to_idle.log" >> /var/spool/cron/root
+}
+
+
+connect_head()
+{
+   SCHED_FOLDER=${DEFAULT_SCHEDFOLDER}
+
+while getopts ":c" opt; do
+      case $opt in
+         c)
+            SCHED_FOLDER=${OPTARG}
+         ;;
+         \?)
+            echo "ERROR: invalid option: -${OPTARG}" >&2
+            print_usage_and_exit
+         ;;
+         :)
+            echo "ERROR: Option -${OPTARG} requires an argument" >&2
+            print_usage_and_exit
+         ;;
+      esac
+   done
+   
+   configure_cyclecloud_connection ${SCHED_FOLDER}
+
 }
 
 configure_head()
@@ -342,7 +369,7 @@ while getopts ":n:u:g:U:G" opt; do
 
 configure_nfs_server ${IP_RANGE} ${SHARED_FOLDER} ${SCHED_FOLDER}
 
-create_users ${SLURM_UID} ${SLURM_GID} ${MUNGE_UID} ${MUNGE_GID}
+create_users ${MUNGE_UID} ${MUNGE_GID} ${SLURM_UID} ${SLURM_GID}
 
 configure_munge ${SCHED_FOLDER} "false"
 
@@ -398,7 +425,7 @@ while getopts ":s:u:g:U:G" opt; do
 
 mount_nfs_server ${NFS_SERVER} ${SHARED_FOLDER} ${SCHED_FOLDER}
 
-create_users ${SLURM_UID} ${SLURM_GID} ${MUNGE_UID} ${MUNGE_GID}
+create_users ${MUNGE_UID} ${MUNGE_GID} ${SLURM_UID} ${SLURM_GID}
 
 configure_munge ${SCHED_FOLDER} "true"
 
@@ -429,6 +456,10 @@ elif [ "${NODE_TYPE}" = "execute" ]
 then
    shift
    configure_execute "$@"
+elif [ "${NODE_TYPE}" = "connect-head" ]
+then
+   shift
+   connect_head "$@"
 else
    print_usage_and_exit
 fi
