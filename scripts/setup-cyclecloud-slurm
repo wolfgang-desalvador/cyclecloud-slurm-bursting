@@ -9,6 +9,8 @@ DEFAULT_MUNGE_UID="11101"
 DEFAULT_MUNGE_GID="11101"
 DEFAULT_SLURM_VERSION="22.05.3"
 DEFAULT_IP_RANGE="all"
+DEFAULT_PREFIX="slurm-lab-execution-"
+DEFAULT_NUMBER_OF_NODES="4"
 
 
 print_usage_and_exit()
@@ -24,25 +26,28 @@ print_usage_and_exit()
    echo "   the folder structure and installing all the dependencies for the busting"
    echo "   scenario."
    echo ""
-   echo "USAGE: $(basename "$0") <nodetype> <options>"
+   echo "USAGE: $(basename "$0") <operation_type> <options>"
    echo ""
-   echo "NODE TYPES:"
-   echo "   The first argument to $(basename "$0") is considered to be the node type that the"
+   echo "OPERATION TYPES:"
+   echo "   The first argument to $(basename "$0") is considered to be the operation type that the"
    echo "   script should configure."
    echo ""
-   echo "   The following node types are available:"
+   echo "   The following operation types are available:"
    echo ""
-   echo "   head:"
-   echo "          "
+   echo "   configure-head-node:"
+   echo "      This configures the external slurm head node performing the following operations:"
+   echo "      - NFS Server creation with two export (/shared and /sched)"   
+   echo "      - Slurm and Munge users creation in accordance with Azure CycleCloud"   
+   echo "      - Azure CycleCloud scale lib installation"   
+   echo "      - Slurm compilation and installation. RPMs are then shared in /sched for external"   
+   echo "        execution nodes"   
    echo ""
    echo "      Mandatory arguments:"
    echo "         -n NAME       => Name of the Slurm cluster."
    echo ""
    echo "      Optional arguments:"
-   echo "         -i IP         => IP range where the NFS mount points should be accessible."
+   echo "         -i IP         => CIDR stating where the NFS mount points should be accessible."
    echo "                          Default: ${DEFAULT_IP_RANGE}"
-   echo "         -s NFS        => NFS server type, internal or external."
-   echo "                          Default: ${DEFAULT_NFS_TYPE}"
    echo "         -h SHARED     => Shared folder path."
    echo "                          Default: ${DEFAULT_SHAREDFOLDER}"
    echo "         -c SCHED      => Sched folder path."
@@ -58,12 +63,61 @@ print_usage_and_exit()
    echo "         -v VERSION    => Slurm Version"
    echo "                          Default: ${DEFAULT_SLURM_VERSION}"
    echo ""
+   echo "   configure-execution-node:"
+   echo "      This configures the external slurm execution node (must be executed after head node configuraiton)"
+   echo "      performing the following operations:"
+   echo "      - Mount from head node NFS Server of (/shared and /sched)"   
+   echo "      - Slurm and Munge users creation in accordance with Azure CycleCloud"   
+   echo "      - Slurm installation from RPMs in /sched (created from head node configuration)"   
+   echo ""
+   echo "      Mandatory arguments:"
+   echo "         -s NFS_SERVER => NFS server IP, should be IP/FQDN of head node"
+   echo ""
+   echo "      Optional arguments:"
+   echo "         -h SHARED     => Shared folder path."
+   echo "                          Default: ${DEFAULT_SHAREDFOLDER}"
+   echo "         -c SCHED      => Sched folder path."
+   echo "                          Default: ${DEFAULT_SCHEDFOLDER}"
+   echo "         -u SLURM_UID  => Slurm user UID"
+   echo "                          Default: ${DEFAULT_SLURM_UID}"
+   echo "         -g SLURM_GID  => Slurm user GID"
+   echo "                          Default: ${DEFAULT_SLURM_GID}"
+   echo "         -U MUNGE_UID  => Munge user UID"
+   echo "                          Default: ${DEFAULT_MUNGE_UID}"
+   echo "         -G MUNGE_GID  => Munge user GID"
+   echo "                          Default: ${DEFAULT_MUNGE_GID}"
+   echo ""
+   echo "   connect-head-node:"
+   echo "      This connects the head node to Azure CycleCloud after head node configuration and credentials initialization"
+   echo "      for cyclecloud_slurm (to be done separately. It will perform the following operations:"
+   echo "      - Create the Slurm nodes in Azure CycleCloud cluster"   
+   echo "      - Create all Slurm configuration files according to Azure CycleCloud requirements"   
+   echo "      - It will create definition of additional execution nodes external to Azure CycleCloud to test bursting"   
+   echo "        scenario."   
+   echo ""
+   echo "      Mandatory arguments:"
+   echo "         -M REAL_MEMORY        => Real memoery of external execution nodes in KiB"
+   echo "         -C NUMBER_OF_CPUS     => Number of CPUs of external execution nodes"
+   echo "         -T NUMBER_OF_THREADS  => Number of threads per cpu of the external execution nodes"
+   echo ""
+   echo "      Optional arguments:"
+   echo "         -c SCHED      => Sched folder path."
+   echo "                          Default: ${DEFAULT_SCHEDFOLDER}"
+   echo "         -P PREFIX     => Prefix of the external execution nodes to be added"
+   echo "                          Default: ${DEFAULT_PREFIX}"
+   echo "         -N NODES      => Number of external nodes to be added"
+   echo "                          Default: ${NUMBER_OF_NODES}"
    echo ""
    echo "EXAMPLES:"
    echo ""
-   echo "   :"
-   echo "      $(basename "$0") "
+   echo "   Configure head node with default configuration and limiting connections to NFS on 10.0.0.0/24:"
+   echo "      $(basename "$0") configure-head-node -n Slurm-Cluster -i 10.0.0.0/24"
    echo ""
+   echo "   Configure execution node with default configuration and connecting to head node at 10.0.0.4:"
+   echo "      $(basename "$0") configure-execution-node -s 10.0.0.4"
+   echo ""
+   echo "   Connect head node to Azure CycleCloud, adding 6 external execution nodes to Slurm configuration"
+   echo "      $(basename "$0") connect-head-node -N 6 -P slurm-external-execution-node -C 2 -M 4096 -T 1" 
    exit 1
 }
 
@@ -87,13 +141,23 @@ mount_nfs_server()
    SHARED_FOLDER=$2
    NFS_SERVER=$1
 
-    yum install -y nfs-utils
+   yum install -y nfs-utils
 
-    mkdir -p ${SHARED_FOLDER}
-    mkdir -p ${SCHED_FOLDER}
-    echo "${NFS_SERVER}:${SHARED_FOLDER}    ${SHARED_FOLDER}    nfs    defaults    0 0 " >> /etc/fstab
-    echo "${NFS_SERVER}:${SCHED_FOLDER}    ${SCHED_FOLDER}    nfs    defaults    0 0 " >> /etc/fstab
-    mount -a
+   mkdir -p ${SHARED_FOLDER}
+   mkdir -p ${SCHED_FOLDER}
+   if cat /etc/fstab | grep "${NFS_SERVER}:${SHARED_FOLDER}";
+   then
+       echo "Mount point already present"
+   else
+       echo "${NFS_SERVER}:${SHARED_FOLDER}    ${SHARED_FOLDER}    nfs    defaults    0 0 " >> /etc/fstab 
+   fi
+   if cat /etc/fstab | grep "${NFS_SERVER}:${SCHED_FOLDER}";
+   then
+       echo "Mount point already present"
+   else
+       echo "${NFS_SERVER}:${SCHED_FOLDER}    ${SCHED_FOLDER}    nfs    defaults    0 0 " >> /etc/fstab
+   fi
+   mount -a
 }
 
 configure_nfs_server()
@@ -302,16 +366,49 @@ configure_cyclecloud_connection()
     echo "*/2 * * * * /opt/cycle/slurm/return_to_idle.sh /var/logs/return_to_idle.log" >> /var/spool/cron/root
 }
 
+add_external_nodes()
+{
+   PREFIX=$1
+   NUMBER_OF_NODES=$2
+   NUMBER_OF_CPUS=$3
+   NUMBER_OF_THREADS=$4
+   REAL_MEMORY=$5
+   echo "SwitchName=onp Nodes=${PREFIX}-[1-${NUMBER_OF_NODES}]" >> /sched/topology.conf
+   sed -i "s/PartitionName=hpc Nodes=/PartitionName=hpc Nodes=${PREFIX}-[1-${NUMBER_OF_NODES}],/" /sched/cyclecloud.conf
+   sed -i "/PartitionName=hpc/a Nodename=${PREFIX}-[1-${NUMBER_OF_NODES}] CPUs=${NUMBER_OF_CPUS} ThreadsPerCore=${NUMBER_OF_THREADS} RealMemory=$(bc -l <<<$REAL_MEMORY - 1024)" /sched/cyclecloud.conf
+
+   systemctl restart slurmctld
+}
 
 connect_head()
 {
-   SCHED_FOLDER=${DEFAULT_SCHEDFOLDER}
+SCHED_FOLDER=${DEFAULT_SCHEDFOLDER}
+PREFIX=${DEFAULT_PREFIX}
+NUMBER_OF_NODES=${DEFAULT_NUMBER_OF_NODES}
+NUMBER_OF_CPUS="false"
+NUMBER_OF_THREADS="false"
+REAL_MEMORY="false"
 
-while getopts ":c" opt; do
+while getopts ":c:p:C:M:T" opt; do
       case $opt in
          c)
             SCHED_FOLDER=${OPTARG}
          ;;
+         p)
+            PREFIX=${OPTARG}
+         ;;
+         N)
+            NUMBER_OF_NODES=${OPTARG}
+         ;;
+         M)
+            REAL_MEMORY=${OPTARG}
+         ;;
+         C)
+            NUMBER_OF_CPUS=${OPTARG}
+         ;;  
+         T)
+            NUMBER_OF_THREADS=${OPTARG}
+         ;;          
          \?)
             echo "ERROR: invalid option: -${OPTARG}" >&2
             print_usage_and_exit
@@ -323,9 +420,17 @@ while getopts ":c" opt; do
       esac
    done
    
+   if [ "${REAL_MEMORY}" = "false" || "${NUMBER_OF_CPUS}" = "false" || "${NUMBER_OF_THREADS}" = "false" ]
+   then
+       echo "Not all node parameters (memory, number of cpus and number of threads) specified. Exiting..."
+       exit 1
+   fi
    configure_cyclecloud_connection ${SCHED_FOLDER}
-
+   add_external_nodes ${PREFIX} ${NUMBER_OF_NODES} ${NUMBER_OF_CPUS} ${NUMBER_OF_THREADS} ${REAL_MEMORY}
 }
+
+
+
 
 configure_head()
 {
@@ -339,7 +444,8 @@ configure_head()
    SLURM_VERSION=${DEFAULT_SLURM_VERSION}
    IP_RANGE=${DEFAULT_IP_RANGE}
 
-while getopts ":n:u:g:U:G" opt; do
+
+while getopts ":n:u:g:U:G:i:v:p" opt; do
       case $opt in
          n)
             CLUSTER_NAME=${OPTARG}
@@ -355,6 +461,12 @@ while getopts ":n:u:g:U:G" opt; do
          ;;
          G)
             MUNGE_GID=${OPTARG}
+         ;;
+         i)
+            IP_RANGE=${OPTARG}
+         ;;
+         v)
+            SLURM_VERSION=${OPTARG}
          ;;
          \?)
             echo "ERROR: invalid option: -${OPTARG}" >&2
@@ -423,6 +535,12 @@ while getopts ":s:u:g:U:G" opt; do
       esac
    done
 
+if [ "${NFS_SERVER}" = "false" ]
+then
+    echo "NFS IP Server not specified. Exiting..."
+    exit 1
+fi
+
 mount_nfs_server ${NFS_SERVER} ${SHARED_FOLDER} ${SCHED_FOLDER}
 
 create_users ${MUNGE_UID} ${MUNGE_GID} ${SLURM_UID} ${SLURM_GID}
@@ -448,15 +566,15 @@ fi
 # parse arguments
 NODE_TYPE=$1
 
-if [ "${NODE_TYPE}" = "head" ]
+if [ "${NODE_TYPE}" = "configure-head-node" ]
 then
    shift
    configure_head "$@"
-elif [ "${NODE_TYPE}" = "execute" ]
+elif [ "${NODE_TYPE}" = "configure-execution-node"]
 then
    shift
    configure_execute "$@"
-elif [ "${NODE_TYPE}" = "connect-head" ]
+elif [ "${NODE_TYPE}" = "connect-head-node" ]
 then
    shift
    connect_head "$@"
