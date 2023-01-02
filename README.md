@@ -11,3 +11,15 @@ The architecture proposed in this example is based on the deployment of a Slurm 
 </br>
 
 ![Alt text](images/architecture.png?raw=true "Architecture")
+
+## Azure CycleCloud setup
+
+The first step of the procedure is to configure Slurm headless cluster in Azure CycleCloud. This cluster won't have an head node, but it will have execution nodes that will be provisioned/de-provisioned on-demand by Azure CycleCloud.
+
+As a first step it is necessary to import `slurm-headless.txt` inside the designated Azure CycleCloud instance:
+
+`cyclecloud import_template -f slurm-headless.txt`
+
+This will make Slurm headless template available inside Azure CycleCloud
+
+## Azure CycleCloud cluster creation
