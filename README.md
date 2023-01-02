@@ -91,8 +91,9 @@ After machine creation with standard CentOS marketplace image, the following com
 
 
 ```
-sudo ./setup-slurm-cluster.sh -n "Slurm-Cluster" -i <CIDR_NFS_CLIENTS>
+sudo ./setup-slurm-cluster.sh configure-head-node -n "Slurm-Cluster" -i <CIDR_NFS_CLIENTS>
 ```
+`<CIDR_NFS_CLIENTS>` should include the range where Azure CycleCloud execution nodes will be deployed and where other external execution nodes will be deployed.
 
 Users aligned with Azure CycleCloud should be created on the node:
 
@@ -123,3 +124,30 @@ salloc -N 1
 ```
 ![Alt text](images/node_allocation.png?raw=true "Slurm Nodes allocation")
 <br>
+
+## External Slurm execution nodes creation
+
+It is possible to add other execution nodes externally in the test environment. 
+
+The first step is to configure the Slurm head node with this external NodeNames.
+
+This command for example will add `<NUMBER_OF_NODES>` execution nodes (with hostnames `<PREFIX>-1`, `<PREFIX>-2`, ..-) to the cluster.
+
+It is critical to define for these nodes `<N_CPUS>`, `<N_THREADS>`, `<MEMORY>` to avoid Slurm putting these nodes in drain.
+
+```
+# On Slurm external head node
+sudo ./setup-slurm-cluster.sh add-external-execution-nodes -N <NUMBER_OF_NODES> -P <PREFIX> -C <N_CPUS> -M <MEMORY> -T <N_THREADS>
+```
+
+To configure an external execution node and to connect it to the cluster, the next step is to create a VM attached to the same subnet of the Slurm external head node. Hostname should be coherent with `<PREFIX>`.
+
+This execution node will mount `/shared` and `/sched` path, from the Slurm head node.
+
+The following script performs, after VM creation, all the steps required to join the execution node to the Slurm cluster.
+
+```
+# On each Slurm external execution node requiring configuration
+sudo ./setup-slurm-cluster.sh configure-execution-node configure-execution-node -s <HEAD_NODE_IP>
+```
+
