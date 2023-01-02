@@ -4,6 +4,13 @@ This repository contains the code required to realize a "lab" for a cloud bursti
 
 For exisiting clusters it can be used as a guidance of the necessary modifications to Slurm configuration for a bursting scenario configuration.
 
+## Software versions
+This flow has been tested with the following stack:
+* CentOS HPC Image 7.9 (urn: OpenLogic:CentOS-HPC:7_9-gen2:7.9.2022040101)
+* Azure CycleCloud Version 8.3-3062
+* Slurm 22.05.3
+* Azure CycleCloud Slurm template 2.7.0
+
 ## Architecture overview
 
 The architecture proposed in this example is based on the deployment of a Slurm cluster outside of Azure CycleCloud inside an Azure subnet and the subsequent connection of this cluster, using CycleCloud libraries, to an headless Slurm CycleCloud cluster.
@@ -124,6 +131,7 @@ salloc -N 1
 ```
 ![Alt text](images/node_allocation.png?raw=true "Slurm Nodes allocation")
 <br>
+
 
 ## External Slurm execution nodes creation
 
