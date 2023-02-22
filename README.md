@@ -110,7 +110,7 @@ groupadd -g <UID> <USERNAME>
 useradd -u <UID> -g <UID> -m -d /shared/home/<USERNAME>
 ```
 
-This should be done for all Azure CycleCloud nodes.
+This should be done for all Azure CycleCloud users.
 
 After, the following command must be run for connection with Azure CycleCloud server (remember to Start Azure CyleCloud headless cluster):
 
