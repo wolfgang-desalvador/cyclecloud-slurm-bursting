@@ -195,6 +195,7 @@ configure_munge()
         chmod 700 ${SCHED_FOLDER}/munge/munge.key
     fi
     cp -p ${SCHED_FOLDER}/munge/munge.key  /etc/munge/munge.key 
+    chown munge:munge /etc/munge/munge.key
 
     systemctl enable munge
     systemctl restart munge
@@ -353,7 +354,7 @@ NUMBER_OF_CPUS="false"
 NUMBER_OF_THREADS="false"
 REAL_MEMORY="false"
 
-while getopts ":c:p:C:M:T" opt; do
+while getopts ":c:p:N:M:C:T" opt; do
       case $opt in
          c)
             SCHED_FOLDER=${OPTARG}
